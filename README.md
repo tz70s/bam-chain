@@ -1,4 +1,3 @@
-# Bytechain
+# Boychain
 
-Concise and simple blockchain implementation in rust.
-Followed guidances by [naivechain](https://github.com/lhartikk/naivechain)
+Baby blockchain implementation in rust, inspired by [naivechain](https://github.com/lhartikk/naivechain)
