@@ -15,7 +15,7 @@ pub struct Block {
 }
 
 impl Block {
-    fn new(index: u32, time: String, hash: Vec<u8>, pre_hash: Vec<u8>, data: String) -> Block {
+    fn new(index: u32, time: String, hash: Vec<u8>, pre_hash: Vec<u8>, data: String) -> Self {
         Block {
             index,
             time,
@@ -113,7 +113,7 @@ pub fn validate_block(pre_block: &Block, block: &Block) -> bool {
 /// Validate a block chain, iterate a blockchain and validate all blocks.
 fn validate_chain(block_chain: &BlockChain) -> bool {
     // TODO: make the chain iterable.
-    let mut pre_block = block_chain.chain.iter().next().unwrap();
+    let pre_block = block_chain.chain.iter().next().unwrap();
     for next_block in block_chain.chain.iter() {
         if !validate_block(pre_block, next_block) {
             return false;

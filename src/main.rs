@@ -16,6 +16,7 @@ extern crate serde;
 extern crate serde_json;
 
 mod block;
+mod miner;
 mod peer;
 mod service;
 
