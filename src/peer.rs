@@ -4,7 +4,9 @@ use futures::{future, Future, Stream};
 use gotham::handler::{HandlerFuture, IntoHandlerError};
 use gotham::http::response::create_response;
 use gotham::state::{FromState, State};
-use hyper::{Body, StatusCode};
+use hyper::{Body, StatusCode, Uri};
+use serde::de::{self, Deserialize, Deserializer};
+use serde::ser::{Serialize, Serializer};
 use serde_json;
 use std::sync::{Arc, RwLock};
 
@@ -15,10 +17,38 @@ pub enum Liveness {
     Unknown,
 }
 
+#[derive(PartialEq, Eq, Debug)]
+pub struct Address(pub Uri);
+
+impl Serialize for Address {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let address_ser = format!("{}:{}", self.0.host().unwrap(), self.0.port().unwrap());
+        serializer.serialize_str(&address_ser)
+    }
+}
+
+impl<'de> Deserialize<'de> for Address {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Deserialize::deserialize(deserializer).and_then(|s: &str| {
+            let uri = match s.parse() {
+                Ok(u) => u,
+                Err(e) => return Err(de::Error::custom(format!("parse uri failed. {}", e))),
+            };
+            Ok(Address(uri))
+        })
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Peer {
-    address: String,
-    liveness: Liveness,
+    pub address: Address,
+    pub liveness: Liveness,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
