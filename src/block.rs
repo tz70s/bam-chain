@@ -5,13 +5,13 @@ use serde_json;
 use sha3::{Digest, Sha3_256};
 use std::mem::transmute;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Block {
-    index: u32,
-    time: String,
-    hash: Vec<u8>,
-    pre_hash: Vec<u8>,
-    data: String,
+    pub index: u32,
+    pub time: String,
+    pub hash: Vec<u8>,
+    pub pre_hash: Vec<u8>,
+    pub data: String,
 }
 
 impl Block {
@@ -23,10 +23,6 @@ impl Block {
             pre_hash,
             data,
         }
-    }
-
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(self).unwrap()
     }
 
     pub fn to_vec(&self) -> Vec<u8> {
@@ -61,7 +57,10 @@ impl BlockChain {
         let time = format!("{}", Utc::now());
         let pre_hash = Vec::<u8>::new();
         let data = "Genesis block.".to_string();
-        let hash = calculate_hash(0, &time, &pre_hash, &data);
+        let hash: Vec<u8> = vec![
+            58, 189, 197, 52, 175, 113, 254, 248, 138, 252, 216, 166, 7, 222, 247, 172, 174, 235,
+            214, 143, 214, 32, 59, 211, 64, 58, 123, 29, 148, 66, 54, 185,
+        ];
         chain.push(Block::new(0, time, hash, pre_hash, data));
         BlockChain { chain }
     }
@@ -77,20 +76,33 @@ impl BlockChain {
         Block::new(index, time, hash, pre_hash, data)
     }
 
-    pub fn add_new_block(&mut self, block: Block) {
-        self.chain.push(block);
+    pub fn add_new_block(&mut self, block: Block) -> bool {
+        // Get the latest block.
+        let is_valid;
+        {
+            let latest_block = self.chain.last().unwrap();
+            is_valid = validate_block(latest_block, &block)
+        }
+        if is_valid {
+            self.chain.push(block);
+        }
+        is_valid
     }
 
     pub fn len(&self) -> usize {
         self.chain.len()
     }
 
-    pub fn to_string(&self) -> String {
-        serde_json::to_string(self).unwrap()
-    }
-
     pub fn to_vec(&self) -> Vec<u8> {
         serde_json::to_vec(self).unwrap()
+    }
+
+    pub fn get_latest(&self) -> Option<&Block> {
+        self.chain.last()
+    }
+
+    pub fn pop_latest(&mut self) -> Option<Block> {
+        self.chain.pop()
     }
 }
 
@@ -113,17 +125,17 @@ pub fn validate_block(pre_block: &Block, block: &Block) -> bool {
 /// Validate a block chain, iterate a blockchain and validate all blocks.
 fn validate_chain(block_chain: &BlockChain) -> bool {
     // TODO: make the chain iterable.
-    let pre_block = block_chain.chain.iter().next().unwrap();
+    let mut pre_block = block_chain.chain.iter().next().unwrap();
     for next_block in block_chain.chain.iter() {
         if !validate_block(pre_block, next_block) {
             return false;
         }
+        pre_block = next_block;
     }
     true
 }
 
-fn replace_to_new_chain(old_chain: &BlockChain, plain_chain: &[u8]) -> Option<BlockChain> {
-    let new_chain = serde_json::from_slice(plain_chain).unwrap();
+pub fn replace_to_new_chain(old_chain: &BlockChain, new_chain: BlockChain) -> Option<BlockChain> {
     if validate_chain(&new_chain) && new_chain.len() > old_chain.len() {
         Some(new_chain)
     } else {

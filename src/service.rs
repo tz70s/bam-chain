@@ -8,11 +8,9 @@ use mime;
 use miner::MinerService;
 use std::sync::Arc;
 
-const DEFAULT_PORT: u32 = 8191;
-
-pub fn start() {
-    let addr = format!("0.0.0.0:{}", DEFAULT_PORT);
-    info!("Spawn a miner server at {}", addr);
+pub fn start(port: u32) {
+    let addr = format!("0.0.0.0:{}", port);
+    println!("Spawn a miner server at {}", addr);
     let middleware = MiddlewareService::new();
     let shared_middleware = Arc::new(middleware);
     gotham::start(addr, MiddlewareService::router(shared_middleware.clone()));
@@ -47,6 +45,8 @@ impl MiddlewareService {
     /// Router generator static method.
     fn router(middleware: Arc<MiddlewareService>) -> Router {
         build_simple_router(|route| {
+            // ------------ External routes for ui control ------------
+
             // Default route, return the hello world message.
             let shared_middleware = middleware.clone();
             route
@@ -69,6 +69,32 @@ impl MiddlewareService {
             let shared_middleware = middleware.clone();
             route.post("/add_peers").to_new_handler(move || {
                 Ok(|state| shared_middleware.miner_service.add_peers(state))
+            });
+
+            // List peers of in this node.
+            let shared_middleware = middleware.clone();
+            route.get("/list_peers").to_new_handler(move || {
+                Ok(|state| shared_middleware.miner_service.list_peers(state))
+            });
+
+            // ------------ Internal routes for miner nodes communications ------------
+
+            // Response latest block.
+            let shared_middleware = middleware.clone();
+            route.get("/response_latest_block").to_new_handler(move || {
+                Ok(|state| shared_middleware.miner_service.response_latest_block(state))
+            });
+
+            // Response whole chain in this node.
+            let shared_middleware = middleware.clone();
+            route.get("/response_whole_chain").to_new_handler(move || {
+                Ok(|state| shared_middleware.miner_service.response_whole_chain(state))
+            });
+
+            // Publish blocks to this node.
+            let shared_middleware = middleware.clone();
+            route.post("/publish_blocks").to_new_handler(move || {
+                Ok(|state| shared_middleware.miner_service.publish_block_handler(state))
             });
         })
     }
