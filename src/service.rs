@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub fn start(port: u32) {
     let addr = format!("0.0.0.0:{}", port);
-    println!("Spawn a miner server at {}", addr);
+    info!("spawn a miner server at {}", addr);
     let middleware = MiddlewareService::new();
     let shared_middleware = Arc::new(middleware);
     gotham::start(addr, MiddlewareService::router(shared_middleware.clone()));

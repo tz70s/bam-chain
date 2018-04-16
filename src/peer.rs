@@ -9,9 +9,30 @@ use hyper::{self, Body, Client, Method, Request, Response, StatusCode, Uri};
 use mime;
 use miner::MinerMessage;
 use serde_json;
-use std::mem;
+use std::env;
 use std::sync::{Arc, RwLock};
 use tokio_core::reactor::Handle;
+
+const DEFAULT_PORT: u32 = 8191;
+
+lazy_static! {
+    pub static ref LISTENED_PORT: u32 = {
+        let arg: Vec<_> = env::args().collect();
+        if arg.len() > 1 {
+            arg[1].parse().unwrap_or(DEFAULT_PORT)
+        } else {
+            DEFAULT_PORT
+        }
+    };
+    static ref LOCAL_HOST: String = format!("{}:{}", "localhost", *LISTENED_PORT);
+    static ref LOCAL_HOST_IP: String = format!("{}:{}", "127.0.0.1", *LISTENED_PORT);
+    static ref LOOP_BACK_IP: String = format!("{}:{}", "0.0.0.0", *LISTENED_PORT);
+}
+
+/// Helper function to check if the peer address is self.
+fn check_is_self_address(peer: &Peer) -> bool {
+    peer.address == *LOCAL_HOST || peer.address == *LOCAL_HOST_IP || peer.address == *LOOP_BACK_IP
+}
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub enum Liveness {
@@ -26,7 +47,18 @@ pub struct Peer {
     pub liveness: Liveness,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+impl Peer {
+    // Used in test
+    #![allow(dead_code)]
+    fn new<S: Into<String>>(address: S, liveness: Liveness) -> Self {
+        Peer {
+            address: address.into(),
+            liveness,
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Peers {
     carriers: Vec<Peer>,
 }
@@ -38,21 +70,30 @@ impl Peers {
         }
     }
 
+    /// Compare peers in self held peers and the new coming peer list.
+    /// If any update, push it into original peer.
     pub fn compare_and_update(self_peers: Arc<RwLock<Peers>>, other_peers: Peers) {
-        // FIXME: should remove this whole replacement.
-        let mut own_peers = self_peers.write().unwrap();
-        mem::replace(&mut *own_peers, other_peers);
-        // FIXME: this can't work now.
-        /*
-        for carrier in other_peers.carriers.into_iter() {
-            let own_peers = self_peers.read().unwrap();
+        // TODO: we should somewhat check the liveness?
+        // Find the peers that existed or not.
+        // If not existed, push into extension vector.
+        let mut extension: Vec<Peer> = Vec::new();
+        {
+            let own_peers = self_peers.write().unwrap();
             let mut carriers_iter = own_peers.carriers.iter();
-            if !carriers_iter.any(|p| p == &carrier) {
-                let mut own_peers = self_peers.write().unwrap();
-                own_peers.carriers.push(carrier);
+            for carrier in other_peers.carriers.into_iter() {
+                if check_is_self_address(&carrier) {
+                    continue;
+                }
+                let pos = carriers_iter.position(|p| p == &carrier);
+                if pos.is_none() {
+                    extension.push(carrier);
+                }
             }
         }
-        */    }
+
+        let mut own_peers = self_peers.write().unwrap();
+        own_peers.carriers.extend(extension);
+    }
 }
 
 #[derive(Debug)]
@@ -146,4 +187,36 @@ fn http_post(handle: &Handle, url_str: &str, msg: Vec<u8>) -> ResponseContentFut
             .and_then(|full_body| Ok(full_body.to_vec()))
     });
     Box::new(f)
+}
+
+#[cfg(test)]
+mod test_peer {
+    use super::*;
+    extern crate env_logger;
+
+    #[test]
+    fn test_compare_and_update() {
+        let _ = env_logger::try_init();
+        let mut self_peers_raw = Peers::new();
+        self_peers_raw
+            .carriers
+            .push(Peer::new("127.0.0.1:9111", Liveness::Live));
+        let self_peers = Arc::new(RwLock::new(self_peers_raw));
+        let mut other_peers = Peers::new();
+        other_peers
+            .carriers
+            .push(Peer::new("127.0.0.1:9888", Liveness::Live));
+        Peers::compare_and_update(self_peers.clone(), other_peers);
+
+        let mut expected_peers = Peers::new();
+        expected_peers
+            .carriers
+            .push(Peer::new("127.0.0.1:9111", Liveness::Live));
+        expected_peers
+            .carriers
+            .push(Peer::new("127.0.0.1:9888", Liveness::Live));
+        let deref_peers = &*self_peers.read().unwrap();
+        trace!("resulted peers : {:?}", deref_peers);
+        assert_eq!(&expected_peers, deref_peers);
+    }
 }

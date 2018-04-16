@@ -12,6 +12,8 @@ extern crate mime;
 extern crate sha3;
 #[macro_use]
 extern crate serde_derive;
+#[macro_use]
+extern crate lazy_static;
 extern crate serde;
 extern crate serde_json;
 extern crate tokio_core;
@@ -21,17 +23,10 @@ mod miner;
 mod peer;
 mod service;
 
-use std::env;
-
-const DEFAULT_PORT: u32 = 8191;
+use peer::LISTENED_PORT;
 
 fn main() {
     env_logger::init();
-    info!("Simple blockchain implementation in rust.");
-    let arg: Vec<_> = env::args().collect();
-    if arg.len() > 1 {
-        service::start(arg[1].parse().unwrap_or(DEFAULT_PORT));
-    } else {
-        service::start(DEFAULT_PORT);
-    }
+    info!("simple blockchain implementation in rust.");
+    service::start(*LISTENED_PORT);
 }
