@@ -1,13 +1,13 @@
-//! The miner module builds mining relative routes for miner.
+//! This module builds mining relative internal routes for nodes handshakes.
 
-use block::{replace_to_new_chain, BlockChain};
+use super::blockchain::{replace_to_new_chain, BlockChain};
 use futures::{future, Future, Stream};
 use gotham::handler::{HandlerFuture, IntoHandlerError};
 use gotham::http::response::create_response;
 use gotham::state::{FromState, State};
 use hyper::{Body, Response, StatusCode};
-use mime;
-use peer::PeerService;
+use mime::APPLICATION_JSON;
+use peers::PeerAPIs;
 use serde_json;
 use std::io::{self, ErrorKind};
 use std::mem;
@@ -15,94 +15,23 @@ use std::sync::{Arc, RwLock};
 use tokio_core::reactor::Handle;
 
 #[derive(Serialize, Deserialize)]
-pub enum MinerMessage {
+pub enum SyncBlockMessage {
     QueryLatest,
     QueryAll,
     PublishLatestBlock(Vec<u8>),
 }
 
-pub struct MinerService {
+pub struct BlockChainSyncAPIs {
     block_chain: Arc<RwLock<BlockChain>>,
-    peer_service: Arc<PeerService>,
+    peer_apis: Arc<PeerAPIs>,
 }
 
-impl MinerService {
-    pub fn new() -> Self {
-        MinerService {
-            block_chain: Arc::new(RwLock::new(BlockChain::new())),
-            peer_service: Arc::new(PeerService::new()),
+impl BlockChainSyncAPIs {
+    pub fn new(block_chain: Arc<RwLock<BlockChain>>, peer_apis: Arc<PeerAPIs>) -> Self {
+        BlockChainSyncAPIs {
+            block_chain,
+            peer_apis,
         }
-    }
-
-    /// Listing the block chain.
-    pub fn list_block_chain(&self, state: State) -> (State, Response) {
-        let res = create_response(
-            &state,
-            StatusCode::Ok,
-            Some((
-                self.block_chain.read().unwrap().to_vec(),
-                mime::APPLICATION_JSON,
-            )),
-        );
-        (state, res)
-    }
-
-    /// Use the request data to generate new block.
-    /// Currently, the workflow will be:
-    /// 1. Parse the requests body, whether the format is.
-    /// 2. Generate a new block from the request data.
-    /// 3. Checkout if the request new block is validate.
-    /// 4. Add block to chain if validate.
-    /// 5. Generate broadcast requests as concatenate futures.
-    /// 6. Response the updated block chain.
-    ///
-    /// The following minining is currently without POW, POS works.
-    /// Will investigate after whole communication go done.
-    pub fn mine_block(&self, mut state: State) -> Box<HandlerFuture> {
-        let cloned_chain_parse = self.block_chain.clone();
-        let parse_future = Body::take_from(&mut state).concat2().and_then(move |body| {
-            let content = String::from_utf8(body.to_vec()).unwrap();
-            let new_block = cloned_chain_parse
-                .read()
-                .unwrap()
-                .generate_next_block(content);
-            let valid = cloned_chain_parse
-                .write()
-                .unwrap()
-                .add_new_block(new_block.clone());
-            if !valid {
-                return future::err(io::Error::new(ErrorKind::Other, "invalid block.").into());
-            }
-            future::ok(new_block)
-        });
-
-        let handle = Handle::borrow_from(&mut state).clone();
-        let cloned_chain_notify = self.block_chain.clone();
-        let cloned_peer_service = self.peer_service.clone();
-        let notify_future = parse_future.and_then(move |b| {
-            trace!("start broadcasting after parsing block...");
-            let own_chain = cloned_chain_notify.read().unwrap();
-            let broadcast_future = cloned_peer_service
-                .broadcast(handle, MinerMessage::PublishLatestBlock(own_chain.to_vec()));
-            broadcast_future.and_then(|_| Ok(()))
-        });
-
-        let cloned_chain_final = self.block_chain.clone();
-        Box::new(notify_future.then(move |result| match result {
-            Ok(_) => {
-                let res = create_response(
-                    &state,
-                    StatusCode::Ok,
-                    // Response the content of whole chain.
-                    Some((
-                        cloned_chain_final.read().unwrap().to_vec(),
-                        mime::TEXT_PLAIN,
-                    )),
-                );
-                Ok((state, res))
-            }
-            Err(err) => Err((state, err.into_handler_error())),
-        }))
     }
 
     /// Response the latest block, in json format.
@@ -115,16 +44,11 @@ impl MinerService {
             .and_then(|b| Some(b.to_vec()));
 
         let res = match block {
-            Some(b) => create_response(&state, StatusCode::Ok, Some((b, mime::APPLICATION_JSON))),
+            Some(b) => create_response(&state, StatusCode::Ok, Some((b, APPLICATION_JSON))),
             None => create_response(&state, StatusCode::NotFound, None),
         };
 
         (state, res)
-    }
-
-    /// Response the whole chain, same as listing whole block chain in this node.
-    pub fn response_whole_chain(&self, state: State) -> (State, Response) {
-        self.list_block_chain(state)
     }
 
     pub fn publish_block_handler(&self, mut state: State) -> Box<HandlerFuture> {
@@ -168,10 +92,10 @@ impl MinerService {
                     .write()
                     .unwrap()
                     .add_new_block(blocks.pop_latest().unwrap());
-                // TODO: strictly consider miner message design.
+                // TODO: strictly consider exchange message design.
                 let self_chain = cloned_chain_parse.read().unwrap();
                 let latest_block = self_chain.get_latest().unwrap();
-                return future::ok(Some(MinerMessage::PublishLatestBlock(
+                return future::ok(Some(SyncBlockMessage::PublishLatestBlock(
                     latest_block.to_vec(),
                 )));
             } else {
@@ -194,11 +118,11 @@ impl MinerService {
         });
 
         let handle = Handle::borrow_from(&mut state).clone();
-        let cloned_peer_service = self.peer_service.clone();
+        let cloned_peer_apis = self.peer_apis.clone();
         let notify_future = parse_future
             .and_then(move |opt| match opt {
                 Some(msg) => {
-                    let broadcast_future = cloned_peer_service.broadcast(handle, msg);
+                    let broadcast_future = cloned_peer_apis.broadcast(handle, msg);
                     broadcast_future
                 }
                 None => Box::new(future::ok(None)),
@@ -212,15 +136,5 @@ impl MinerService {
             }
             Err(err) => Err((state, err.into_handler_error())),
         }))
-    }
-
-    /// Re-export peer service add peers method.
-    pub fn add_peers(&self, state: State) -> Box<HandlerFuture> {
-        self.peer_service.add_peers(state)
-    }
-
-    /// Re-export peer service list peers method.
-    pub fn list_peers(&self, state: State) -> (State, Response) {
-        self.peer_service.list_peers(state)
     }
 }

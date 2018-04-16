@@ -50,10 +50,14 @@ pub struct BlockChain {
 impl BlockChain {
     /// Create a new block chain instance.
     /// All blocks are stored into a vector.
-    /// The data in argument is assumed to be the data of genesis block.
     pub fn new() -> Self {
-        // Hardcoded genesis block.
         let mut chain = Vec::new();
+        chain.push(BlockChain::generate_genesis_block());
+        BlockChain { chain }
+    }
+
+    fn generate_genesis_block() -> Block {
+        // Hardcoded hash and data of genesis block.
         let time = format!("{}", Utc::now());
         let pre_hash = Vec::<u8>::new();
         let data = "Genesis block.".to_string();
@@ -61,8 +65,7 @@ impl BlockChain {
             58, 189, 197, 52, 175, 113, 254, 248, 138, 252, 216, 166, 7, 222, 247, 172, 174, 235,
             214, 143, 214, 32, 59, 211, 64, 58, 123, 29, 148, 66, 54, 185,
         ];
-        chain.push(Block::new(0, time, hash, pre_hash, data));
-        BlockChain { chain }
+        Block::new(0, time, hash, pre_hash, data)
     }
 
     /// Generate next block, return a block.

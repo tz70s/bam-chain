@@ -18,15 +18,14 @@ extern crate serde;
 extern crate serde_json;
 extern crate tokio_core;
 
-mod block;
-mod miner;
-mod peer;
-mod service;
+mod blockchain;
+mod entry;
+mod peers;
 
-use peer::LISTENED_PORT;
+use peers::LISTENED_PORT;
 
 fn main() {
     env_logger::init();
     info!("simple blockchain implementation in rust.");
-    service::start(*LISTENED_PORT);
+    entry::start(*LISTENED_PORT);
 }

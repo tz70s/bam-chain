@@ -1,13 +1,13 @@
 //! The peer module builds metadata for tracking all nodes.
 
+use blockchain::blockchain_sync::SyncBlockMessage;
 use futures::{future, Future, Stream};
 use gotham::handler::{HandlerFuture, IntoHandlerError};
 use gotham::http::response::create_response;
 use gotham::state::{FromState, State};
 use hyper::header::{ContentLength, ContentType};
 use hyper::{self, Body, Client, Method, Request, Response, StatusCode, Uri};
-use mime;
-use miner::MinerMessage;
+use mime::APPLICATION_JSON;
 use serde_json;
 use std::env;
 use std::sync::{Arc, RwLock};
@@ -60,7 +60,7 @@ impl Peer {
 
 #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Peers {
-    carriers: Vec<Peer>,
+    pub carriers: Vec<Peer>,
 }
 
 impl Peers {
@@ -97,13 +97,13 @@ impl Peers {
 }
 
 #[derive(Debug)]
-pub struct PeerService {
+pub struct PeerAPIs {
     peers: Arc<RwLock<Peers>>,
 }
 
-impl PeerService {
+impl PeerAPIs {
     pub fn new() -> Self {
-        PeerService {
+        PeerAPIs {
             peers: Arc::new(RwLock::new(Peers::new())),
         }
     }
@@ -132,16 +132,16 @@ impl PeerService {
             StatusCode::Ok,
             Some((
                 serde_json::to_vec(&*cloned_peers.read().unwrap()).unwrap(),
-                mime::APPLICATION_JSON,
+                APPLICATION_JSON,
             )),
         );
         (state, res)
     }
 
     /// Broadcast something to all nodes.
-    pub fn broadcast(&self, handle: Handle, msg: MinerMessage) -> BroadcastFuture {
+    pub fn broadcast(&self, handle: Handle, msg: SyncBlockMessage) -> BroadcastFuture {
         match msg {
-            MinerMessage::PublishLatestBlock(content) => {
+            SyncBlockMessage::PublishLatestBlock(content) => {
                 let mut broadcast_futures = Vec::new();
                 for peer in self.peers.read().unwrap().carriers.iter() {
                     let clone_content = content.clone();
