@@ -52,7 +52,7 @@ impl BlockChain {
     /// All blocks are stored into a vector.
     /// The data in argument is assumed to be the data of genesis block.
     pub fn new() -> Self {
-        // Hardcoded gensis block.
+        // Hardcoded genesis block.
         let mut chain = Vec::new();
         let time = format!("{}", Utc::now());
         let pre_hash = Vec::<u8>::new();
